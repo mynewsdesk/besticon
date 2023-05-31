@@ -1,0 +1,34 @@
+name: Deploy
+
+on:
+  repository_dispatch:
+    types:
+      - deploy
+  workflow_dispatch:
+    inputs:
+      deployment_target:
+        description: Deployment Target
+        required: true
+        default: besticon
+        type: choice
+        options:
+          - besticon
+
+jobs:
+  deploy:
+    name: Deploy to ${{ github.event.client_payload.deployment_target || github.event.inputs.deployment_target }}
+    runs-on: ubuntu-latest
+    concurrency: deploy-${{ github.event.client_payload.deployment_target || github.event.inputs.deployment_target }}
+    steps:
+      - uses: reclaim-the-stack/k-action@master
+        with:
+          gitops-repository-url: ${{ secrets.GITOPS_REPOSITORY_URL }}
+          kube-config: ${{ secrets.KUBE_CONFIG }}
+          registry: ${{ vars.K_DOCKER_REGISTRY }}
+          registry-namespace: ${{ vars.K_DOCKER_NAMESPACE }}
+
+      - uses: actions/checkout@v3
+      - env:
+          DEPLOYMENT_TARGET: ${{ github.event.client_payload.deployment_target || github.event.inputs.deployment_target }}
+        run: |
+          k deploy $DEPLOYMENT_TARGET --disable-image-verification
