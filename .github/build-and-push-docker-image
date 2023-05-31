@@ -1,0 +1,24 @@
+#!/bin/sh
+
+# Usage:
+# .github/build-and-push-docker-image europe-north1-docker.pkg.dev/kubernetes-367912/mynewsdesk/<repo>
+
+set -e
+
+if [ -z "$1" ]; then
+  echo "Usage: bin/build-and-push-docker-image <docker-repo>"
+  exit 1
+fi
+
+DOCKER_REPOSITORY=$1
+GIT_SHA=$(git rev-parse HEAD)
+
+echo "Building and pushing to: $DOCKER_REPOSITORY:sha-$GIT_SHA"
+
+docker buildx build . \
+  --platform linux/amd64 \
+  -t $DOCKER_REPOSITORY:sha-$GIT_SHA \
+  --cache-from type=registry,ref=$DOCKER_REPOSITORY \
+  --cache-to type=registry,ref=$DOCKER_REPOSITORY \
+  --progress plain \
+  --push

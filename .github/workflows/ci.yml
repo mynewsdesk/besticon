@@ -1,0 +1,30 @@
+name: Continuous Integration
+
+on: push
+
+jobs:
+  docker-image:
+    name: Build and push Docker image
+    runs-on: ubuntu-latest
+    steps:
+      - uses: docker/login-action@v2
+        with:
+          registry: ${{ vars.K_DOCKER_REGISTRY }}
+          username: _json_key
+          password: ${{ secrets.K_DOCKER_REGISTRY_JSON_KEY }}
+      - uses: docker/setup-buildx-action@v2
+      - uses: actions/checkout@v3
+      - name: Set the GITHUB_NAME environment variable to the name of the GitHub repository
+        run: echo "GITHUB_NAME=$(echo $GITHUB_REPOSITORY | cut -d / -f 2)" >> $GITHUB_ENV
+      - run: .github/build-and-push-docker-image "${{ vars.K_DOCKER_REGISTRY }}/${{ vars.K_DOCKER_NAMESPACE }}/${{ env.GITHUB_NAME }}"
+
+  auto-deploy:
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/master'
+    needs: [docker-image]
+    steps:
+      - uses: peter-evans/repository-dispatch@v2
+        with:
+          token: ${{ secrets.GH_PERSONAL_ACCESS_TOKEN }}
+          event-type: deploy
+          client-payload: '{ "deployment_target": "besticon" }'
