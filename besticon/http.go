@@ -6,9 +6,11 @@ import (
 	"golang.org/x/net/publicsuffix"
 	"io"
 	"io/ioutil"
+	"net"
 	"net/http"
 	"net/http/cookiejar"
 	"net/url"
+	"syscall"
 	"time"
 )
 
@@ -27,10 +29,66 @@ func (h *httpTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 }
 
 func NewDefaultHTTPTransport(userAgent string) http.RoundTripper {
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.DialContext = (&net.Dialer{
+		Timeout:   30 * time.Second,
+		KeepAlive: 30 * time.Second,
+		Control:   refuseNonPublicAddress,
+	}).DialContext
+
 	return &httpTransport{
-		transport: http.DefaultTransport,
+		transport: transport,
 		userAgent: userAgent,
 	}
+}
+
+var errNonPublicAddress = errors.New("refusing to connect to non-public address")
+
+// Runs after DNS resolution, so redirects and rebinding are covered too
+func refuseNonPublicAddress(_, address string, _ syscall.RawConn) error {
+	host, _, err := net.SplitHostPort(address)
+	if err != nil {
+		return err
+	}
+	if ip := net.ParseIP(host); ip == nil || !isPublicIP(ip) {
+		return errNonPublicAddress
+	}
+	return nil
+}
+
+var nonPublicNetworks = mustParseCIDRs(
+	"0.0.0.0/8",
+	"100.64.0.0/10",
+	"192.0.0.0/24",
+	"198.18.0.0/15",
+	"240.0.0.0/4",
+	"64:ff9b::/96",
+	"64:ff9b:1::/48",
+)
+
+func isPublicIP(ip net.IP) bool {
+	if ip.IsLoopback() || ip.IsPrivate() || ip.IsUnspecified() || ip.IsMulticast() ||
+		ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsInterfaceLocalMulticast() {
+		return false
+	}
+	for _, network := range nonPublicNetworks {
+		if network.Contains(ip) {
+			return false
+		}
+	}
+	return true
+}
+
+func mustParseCIDRs(cidrs ...string) []*net.IPNet {
+	networks := make([]*net.IPNet, len(cidrs))
+	for i, cidr := range cidrs {
+		_, network, err := net.ParseCIDR(cidr)
+		if err != nil {
+			panic(err)
+		}
+		networks[i] = network
+	}
+	return networks
 }
 
 func NewDefaultHTTPClient() *http.Client {
